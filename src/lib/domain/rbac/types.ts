@@ -61,6 +61,8 @@ export interface ItemCtx {
    * The engine does not walk the org tree.
    */
   appraiseeDepartmentId: string;
+  /** The appraisee's own Reporting Manager (from Users). Needed to resolve RM-rated items. */
+  appraiseeRmCabiesId?: string;
   raterKind: RaterKind;
   raterGroupId?: string;
   status: ItemStatus;
@@ -85,6 +87,17 @@ export type Action =
   | { type: "SET_PROJECT_PAY_ENABLED"; departmentId: string; targetCabiesId: string; ctx: AssignmentCtx }
   // HR / Management (step: HR + MD)
   | { type: "MANAGE_KPI_PARAMS" } // read + write the KPI parameter sets (HR)
-  | { type: "VIEW_ORG_OVERVIEW" }; // read-only company/org overview (HR, Management)
+  | { type: "VIEW_ORG_OVERVIEW" } // read-only company/org overview (HR, Management)
+  // Analyst / Team Lead / Manager as appraisal actors
+  | { type: "VIEW_TEAM_STATUS"; rmCabiesId: string } // a TL/Manager's view of their direct reports
+  | { type: "APPROVE_SCORE"; cycle: CycleCtx; appraisee: ApproveeCtx };
+
+/** Who the appraisee is, for the approval decision. */
+export interface ApproveeCtx {
+  appraiseeId: string;
+  /** The appraisee's own Reporting Manager, from Users. Empty string = no RM on record. */
+  rmCabiesId: string;
+  designation: "Analyst" | "Team Lead" | "Manager";
+}
 
 export type ActionType = Action["type"];
