@@ -1,6 +1,6 @@
 # C&B Performance — Setup So Far
 
-Status as of 3 Nov 2026. This records what's built and working, and exactly how to
+Status as of 4 Nov 2026. This records what's built and working, and exactly how to
 rebuild the environment from scratch if needed.
 
 ---
@@ -25,6 +25,7 @@ an uploaded .xlsx — the Sheets API cannot read Office files directly; it must 
 **Sheet ID (dev):** `1guDPgOo87ae0eNm5Kyl0pJdMuuR5xmD2MS7KsWhDjI0`
 
 **Tabs:**
+
 | Tab | Holds | Written by |
 |---|---|---|
 | KPI_Parameters | KPI questions per role (unit, designation, component, section, weight, question, max/min, rater, validator) | HR, directly in the sheet |
@@ -33,6 +34,7 @@ an uploaded .xlsx — the Sheets API cannot read Office files directly; it must 
 | DeptPCs | Which PC covers which department | HR |
 | Groups | Members of each rater/validator group (HR, Admin, Management, Operations) | HR |
 | UserTypes | App access (HR/ADMIN/PC/MANAGEMENT) + audit-log access | HR |
+| Cycles (new, 4 Nov) | One row per appraisal month: month, status (UPCOMING/OPEN/CLOSED), entry deadline, approval deadline, closed-at | HR |
 | KPI_Points_YYYY-MM | Readable scores, one tab per appraisal month | the app |
 | ItemEvents | Append-only log of every point entry/change (source of truth) | the app |
 | AuditLog | Append-only record of every action | the app |
@@ -42,6 +44,10 @@ read from cell colour (yellow=HR, green=Admin, blue=PC, purple=Self, no colour=R
 the person above). Copied to the other departments; Support Staff has its own draft
 set by function (HR/Admin/Operations/PC). Weights, points and validators are starter
 values for HR to confirm.
+
+**Rater values as stored (checked 4 Nov):** Analyst rows use `GROUP` (group HR or
+Admin), `PC`, and `SELF`. Analysts have no `RM` rows — RM-rated items sit on Team
+Lead rows (a Team Lead's uncoloured item is scored by their Manager).
 
 **This is the DEV sheet.** For production: make a separate clean Sheet, same structure,
 with the real staff list and HR's real weights/points/validators.
@@ -75,70 +81,85 @@ with the real staff list and HR's real weights/points/validators.
 
 Created with `create-next-app` (TypeScript, App Router, Tailwind, `src/` directory,
 `@/*` import alias). **Important:** keep the repo path free of `&` and spaces
-(Windows treats `&` as a command separator and breaks npm scripts).
+(Windows treats `&` as a command separator and breaks npm scripts). Also keep
+**no stray `app/` or `pages/` folder at the project root** — Next.js will use that
+instead of `src/app` and silently 404 every route (bit us once, see §9).
 
 ### Folder layout
-```
-cb-appraisal/
-  src/
-    app/
-      page.tsx              home — shows role-based dashboard links
-      login/page.tsx         sign-in page
-      hr/page.tsx             HR dashboard (KPI parameters)
-      md/page.tsx             MD dashboard (org overview)
-      api/auth/[...nextauth]/route.ts
-    lib/
-      domain/
-        rbac/                 permission engine: types, permissions, scope, signin, rules/*
-        kpi/params.ts          KPI parameter validation + effective-month resolution
-        org/overview.ts        org overview aggregation
-      sheets/
-        repo.ts                 the SheetsRepo interface (what the app depends on)
-        googleRepo.ts           real Google Sheets implementation
-        sampleRepo.ts           in-memory sample data (fallback / dev)
-        getRepo.ts               picks sample vs real Sheet, by SHEETS_DB_ID
-      actions/
-        hr.ts                   saveKpiParams (HR writes parameters)
-        md.ts                   getOrgOverview (MD reads the overview)
-      auth/
-        principal.ts            turns a signed-in email into a Principal (role) from the Sheet
-        session.ts               getPrincipal() helper for pages
-    auth.ts                       Auth.js config (Google provider + the sign-in gate)
-    middleware.ts                 redirects signed-out visitors to /login
-  tests/unit/                     82 tests (vitest)
-```
+
+    cb-appraisal/
+      src/
+        app/
+          page.tsx              home — shows role-based dashboard links
+          login/page.tsx         sign-in page
+          hr/page.tsx             HR dashboard (KPI parameters)
+          md/page.tsx             MD dashboard (org overview)
+          me/page.tsx              "My Appraisal" — self-entry, one "Save all scores" button
+          team/page.tsx            Team Lead's list of direct reports + entered counts
+          team/[id]/page.tsx       one report's RM-rated scores, "Save all scores"
+          api/auth/[...nextauth]/route.ts
+        lib/
+          domain/
+            rbac/                 permission engine: types, permissions, scope, signin, rules/*
+            kpi/params.ts          KPI parameter validation + effective-month resolution
+            org/overview.ts        org overview aggregation
+            entry/
+              points.ts             validatePoints — range + 2-decimal checks
+              status.ts             deriveAllItemStates — ItemEvents → current value/status
+              myQuestions.ts        resolveMyQuestions — a person's questions for a month
+            cycle/cycle.ts          (new, 4 Nov) pure cycle rules: openCycle, entryDecision,
+                                     deadlinePassed — no Sheets dependency, easy to test
+          sheets/
+            repo.ts                 the SheetsRepo interface (what the app depends on)
+            googleRepo.ts           real Google Sheets implementation (@ts-nocheck, untested)
+            sampleRepo.ts           in-memory sample data (fallback / dev)
+            getRepo.ts               picks sample vs real Sheet, by SHEETS_DB_ID
+          actions/
+            hr.ts                   saveKpiParams (HR writes parameters)
+            md.ts                   getOrgOverview (MD reads the overview)
+            approve.ts               approveScore (approval chain, audit-only so far)
+            teamStatus.ts            getTeamStatus (pure aggregation, used by old /team stub)
+            teamQueue.ts             (new, 4 Nov) loadReports / loadReportQuestions / currentMonth
+            enterPoint.ts            enterSelfPoint + enterRmPoint — the real write path
+          auth/
+            principal.ts            turns a signed-in email into a Principal (role) from the Sheet
+            session.ts               getPrincipal() helper for pages
+        auth.config.ts                 (new, 4 Nov) edge-safe Auth.js config (provider + pages only)
+        auth.ts                       Auth.js config — now reads the real Users tab for sign-in
+        middleware.ts                 redirects signed-out visitors to /login; uses auth.config.ts
+                                       only, so it doesn't pull in the Sheets client
+      tests/unit/                     124 tests (vitest) — includes cycle.test.ts
 
 ### `.env.local`
-```
-AUTH_SECRET=<random, e.g. from node -e "console.log(require('crypto').randomBytes(32).toString('base64'))">
-AUTH_GOOGLE_ID=<OAuth client ID>
-AUTH_GOOGLE_SECRET=<OAuth client secret>
-ALLOWED_EMAIL_DOMAINS=candbindia.com,propotentia.com
-BOOTSTRAP_HR_EMAILS=<your email — lets you in before the Users tab matters, treated as HR+MANAGEMENT>
-SHEETS_DB_ID=1guDPgOo87ae0eNm5Kyl0pJdMuuR5xmD2MS7KsWhDjI0
-GOOGLE_SA_EMAIL=<service account client_email>
-GOOGLE_SA_PRIVATE_KEY=<service account private_key, keep \n as literal backslash-n>
-```
+
+    AUTH_SECRET=<random, e.g. from node -e "console.log(require('crypto').randomBytes(32).toString('base64'))">
+    AUTH_GOOGLE_ID=<OAuth client ID>
+    AUTH_GOOGLE_SECRET=<OAuth client secret>
+    ALLOWED_EMAIL_DOMAINS=candbindia.com,propotentia.com
+    BOOTSTRAP_HR_EMAILS=<HR email(s) — fallback only while the Users tab is empty or unreachable>
+    SHEETS_DB_ID=1guDPgOo87ae0eNm5Kyl0pJdMuuR5xmD2MS7KsWhDjI0
+    GOOGLE_SA_EMAIL=<service account client_email>
+    GOOGLE_SA_PRIVATE_KEY=<service account private_key, keep \n as literal backslash-n>
 
 ### `next.config.ts`
-```ts
-const nextConfig: NextConfig = {
-  cacheComponents: false,   // pages that read the session can't be pre-rendered; this is required
-};
-```
+
+    const nextConfig: NextConfig = {
+      cacheComponents: false,   // pages that read the session can't be pre-rendered; this is required
+    };
+
+Do **not** add `experimental.partialPrefetching` — it requires `cacheComponents: true`
+and conflicts with the line above (see §9).
 
 ### Dependencies installed beyond the create-next-app defaults
-```
-npm install next-auth@beta
-npm install googleapis google-auth-library
-npm install -D vitest
-```
+
+    npm install next-auth@beta
+    npm install googleapis google-auth-library
+    npm install -D vitest
 
 ### Commands
-```
-npm run dev          # http://localhost:3000
-npx vitest run        # 82 tests should pass
-```
+
+    npm run dev          # http://localhost:3000
+    npx vitest run        # 124 tests should pass
 
 ---
 
@@ -146,20 +167,25 @@ npx vitest run        # 82 tests should pass
 
 1. Person clicks **Sign in with Google** → Google verifies them, no password touches
    this app.
-2. The app checks, in order: email verified by Google → domain is
-   `candbindia.com`/`propotentia.com` → exists as ACTIVE in the Users tab (or is in
-   `BOOTSTRAP_HR_EMAILS` while Users is still being set up) → leavers keep access
-   until their final month closes.
+2. **(Changed 4 Nov)** The app now reads the real **Users** tab during sign-in
+   (matched by email, case-insensitive) and checks, in order: email verified by
+   Google → domain is `candbindia.com`/`propotentia.com` → found as ACTIVE in Users
+   (or in `BOOTSTRAP_HR_EMAILS` only while the Users tab is empty/unreachable) →
+   leavers keep access until their final month closes (not yet enforced — always
+   `false` until Cycles is wired into sign-in).
 3. Once in, `buildPrincipal()` reads **Users** (designation, dept, team, RM),
    **UserTypes** (HR/ADMIN/PC/MANAGEMENT), **Groups** (rater/validator group
    membership) and **DeptPCs** (which departments a PC covers) to build the
    person's full set of rights.
 4. Every action calls `can(principal, action)` on the server — the UI never decides
    what's allowed, only what to show.
+5. **Known gap:** sign-in and principal lookup both take the *first* Users row whose
+   email matches. A duplicate email on the Users tab will silently impersonate
+   whoever that row belongs to. No check against this yet (plan item 21).
 
 ---
 
-## 7. RBA — what's built (82 tests)
+## 7. RBA — what's built (124 tests)
 
 | Role | Can do |
 |---|---|
@@ -167,16 +193,21 @@ npx vitest run        # 82 tests should pass
 | HR | Manage KPI parameters (read/write); view everyone; org overview |
 | Management (MD) | View the org overview; view everyone; **cannot** manage KPI parameters |
 | PC | Create projects / assign people, only in their own department(s) |
+| Team Lead (RM) | Enter RM-rated scores for their own direct reports only (`/team`, `/team/[id]`) |
 
 Built-in guardrails: **data scope** (HR/MD see everyone, everyone else sees only
 themselves — enforced server-side) and the **own-appraisal guard** (nobody acts on
 their own appraisal, whatever their role).
 
 **Not built yet, intentionally:**
-- Reporting Manager rules — waiting on further detail, nothing assumed.
-- Analyst / Team Lead / Manager as appraisal actors.
+
+- Admin, Operations, PC rater queues (same pattern as the Team Lead queue, next up).
 - Validators and the approval chain (Analyst→Team Lead→Manager→Management).
 - HR's add/edit KPI parameter screen (current HR dashboard is read-only).
+- Deadline enforcement in the entry screens (the Cycles tab and rules exist, see §8,
+  but `/me` and `/team/[id]` are not yet wired to use them — still hardcoded to
+  month `2026-09` and always treat the cycle as open).
+- Escalation when an RM is on leave (parked — HR covers absences for now).
 
 ---
 
@@ -186,10 +217,16 @@ their own appraisal, whatever their role).
   item just shows "Not validated" and still counts. Only a **missing entry** blocks
   approval/close.
 - Every employee gets appraised except the **MDs** (MANAGEMENT user type) — exempt,
-  no scorecard.
+  no scorecard. "Management" = the two MDs specifically.
 - Once HR closes a month, scores are **frozen** — no reopen, no correction line.
-- Approval chain: Analyst → Team Lead → Manager → Management, same department
-  (not yet coded).
+- Approval chain: own RM only (Analyst→their TL, TL→their Manager, Manager→Management),
+  HR approves if there's no eligible RM. Not yet coded.
+- **(New, 4 Nov)** Team Leads enter most RM-rated points for their reports. If a rater
+  is unavailable, HR handles it for now — no automatic escalation yet.
+- **(New, 4 Nov)** Appraisal cycles: HR opens/closes a cycle and can extend a deadline
+  (logged to AuditLog). After the entry deadline, RMs can't enter missing scores —
+  those go to HR. Rules are written (`cycle.ts`, 5 passing tests) but not yet wired
+  into the entry pages.
 
 Full list of decisions and open items: `claude/kpi-only-plan.md`.
 
@@ -208,3 +245,26 @@ Full list of decisions and open items: `claude/kpi-only-plan.md`.
 - **"The caller does not have permission" (403)** → the service account wasn't shared
   on *this* file (a converted Sheet is a new file — re-share it), or the email in
   `.env.local` doesn't match the JSON's `client_email` exactly.
+- **(4 Nov) `readUsers()` in `googleRepo.ts` never mapped the Email column** —
+  `UserRow.email` gained a field but the reader never read `r[2]` into it, so
+  sign-in could never match anyone. Fixed by adding `email: r[2],` to the mapped row.
+- **(4 Nov) Every route 404s, even though `page.tsx` exists** — a stray `app/` folder
+  appeared at the **project root** (next to `src/`), and Next.js silently prefers a
+  root `app/` over `src/app/`. Fixed by renaming the root `app/` folder out of the
+  way. Also found stray duplicate `auth.ts`/`middleware.ts` inside `src/app/` at the
+  same time — those belong at `src/`, not `src/app/`.
+- **(4 Nov) `partialPrefetching requires cacheComponents to be enabled`** — don't set
+  `experimental.partialPrefetching` in `next.config.ts` while `cacheComponents: false`
+  is required for the auth-dependent pages. Removed it.
+- **(4 Nov) AuditLog columns don't line up** — `appendAudit()` never wrote the
+  appraisal-month column, shifting every later column left by one (the "reason" cell
+  showed what was actually the previous hash). Fix identified, not yet applied —
+  needs `Prev hash`/`Hash` headers added at M/N and the function updated to match.
+- **(4 Nov) Editing a file in the editor doesn't always take effect** —
+  `/team/page.tsx` kept serving stale content after an edit; fixed by confirming the
+  save landed (`findstr <marker> <file>`), then a full `.next` cache clear
+  (`rmdir /s /q .next`) and dev server restart.
+- **(4 Nov) `git push` to `main` failed** (`Internal Server Error`, then
+  `fatal error in commit_refs_rules`) — a GitHub-side issue, likely a branch rule on
+  `main`; not caused by local code. Worked around by pushing to a side branch first,
+  then succeeded on retry against `main` directly.
