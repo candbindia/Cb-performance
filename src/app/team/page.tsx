@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { getPrincipal } from "@/lib/auth/session";
 import { getRepo } from "@/lib/sheets/getRepo";
-import { loadReports, loadReportQuestions, MONTH } from "@/lib/actions/teamQueue";
+import { loadReports, loadReportQuestions, currentMonth } from "@/lib/actions/teamQueue";
 
 export const instant = false;
 
@@ -11,10 +11,11 @@ export default async function TeamPage() {
   if (!p || !p.cabiesId) return <Denied />;
 
   const repo = await getRepo();
+  const month = await currentMonth(repo);
   const reports = await loadReports(repo, p.cabiesId);
   const rows = await Promise.all(
     reports.map(async (r) => {
-      const qs = await loadReportQuestions(repo, r);
+      const qs = await loadReportQuestions(repo, r, month);
       return { r, total: qs.length, entered: qs.filter((q) => q.state.status !== "NOT_ENTERED").length };
     }),
   );
@@ -23,7 +24,7 @@ export default async function TeamPage() {
     <main style={wrap}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <div>
-          <h1 style={{ fontSize: 22 }}>My team — {MONTH}</h1>
+          <h1 style={{ fontSize: 22 }}>My team — {month}</h1>
           <p style={{ color: "#646767", fontSize: 13 }}>Scores you rate for your direct reports</p>
         </div>
         <Link href="/" style={{ color: "#646767" }}>← Home</Link>

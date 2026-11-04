@@ -5,8 +5,9 @@ import Link from "next/link";
 import { getPrincipal } from "@/lib/auth/session";
 import { getRepo } from "@/lib/sheets/getRepo";
 import { validatePoints } from "@/lib/domain/entry/points";
+import { entryDecision, deadlinePassed, todayIst } from "@/lib/domain/cycle/cycle";
 import { enterRmPoint } from "@/lib/actions/enterPoint";
-import { loadReportQuestions, MONTH } from "@/lib/actions/teamQueue";
+import { loadReportQuestions, currentMonth } from "@/lib/actions/teamQueue";
 
 export const instant = false;
 const enc = encodeURIComponent;
@@ -28,7 +29,8 @@ export default async function ReportPage({
   if (!report || report.rmCabiesId !== p.cabiesId) {
     return <Denied reason="This person does not report to you." />;
   }
-  const questions = await loadReportQuestions(repo, report);
+  const month = await currentMonth(repo);
+  const questions = await loadReportQuestions(repo, report, month);
 
   async function saveAll(formData: FormData) {
     "use server";
@@ -44,7 +46,17 @@ export default async function ReportPage({
       redirect(`/team?error=${enc("You can only enter scores for your own reports.")}`);
     }
 
-    const qs = await loadReportQuestions(repo2, r2);
+    const cycles = await repo2.readCycles();
+    const openCycle = cycles.find((c) => c.status === "OPEN") ?? null;
+    const today = todayIst();
+    const decision = entryDecision(openCycle, today);
+    if (!decision.allowed) {
+      redirect(`${back}?error=${enc(decision.reason ?? "Entry is closed.")}`);
+    }
+    const freshMonth = openCycle!.month;
+    const passedDeadline = deadlinePassed(openCycle, today);
+
+    const qs = await loadReportQuestions(repo2, r2, freshMonth);
     const errors: string[] = [];
     const plan: { index: number; points: number }[] = [];
 
@@ -71,7 +83,7 @@ export default async function ReportPage({
       await enterRmPoint(
         principal,
         {
-          appraisalMonth: MONTH,
+          appraisalMonth: freshMonth,
           instance: q.component, // project items will need their project id here later
           component: q.component,
           project: "",
@@ -80,8 +92,8 @@ export default async function ReportPage({
           points,
           maxPoints: q.maxPoints as number,
           minPoints: q.minPoints as number,
-          item: { status: "NOT_ENTERED", deadlinePassed: false },
-          cycle: { status: "OPEN" },
+          item: { status: "NOT_ENTERED", deadlinePassed: passedDeadline },
+          cycle: { status: openCycle!.status as "OPEN" },
           appraiseeId: r2.cabiesId,
           appraiseeName: r2.name,
           appraiseeDepartmentId: r2.departmentId,
@@ -100,7 +112,7 @@ export default async function ReportPage({
     <main style={wrap}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontSize: 22 }}>{report.name} — {MONTH}</h1>
+          <h1 style={{ fontSize: 22 }}>{report.name} — {month}</h1>
           <p style={{ color: "#646767", fontSize: 13 }}>{report.designation} · RM-rated scores you enter</p>
         </div>
         <Link href="/team" style={{ color: "#646767" }}>← My team</Link>
@@ -119,7 +131,7 @@ export default async function ReportPage({
         <form action={saveAll}>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {questions.map((q, i) => (
-              <div key={q.question} style={card}>
+              <div key={`${i}-${q.question}`} style={card}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, color: "#646767" }}>{q.section} · {q.component}</div>
@@ -134,7 +146,7 @@ export default async function ReportPage({
                       type="number"
                       step="0.01"
                       defaultValue={q.state.value ?? ""}
-                      key={`${q.question}-${q.state.value ?? ""}`}
+                      key={`${i}-${q.question}-${q.state.value ?? ""}`}
                       style={input}
                     />
                     {q.state.status !== "NOT_ENTERED" && (

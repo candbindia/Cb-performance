@@ -1,6 +1,5 @@
 // My Appraisal — one form, one "Save all scores" button. Every entered score is checked first;
-// if any is invalid, nothing is written. Blank boxes are skipped (not entered yet), so you can
-// save some now and the rest later.
+// if any is invalid, nothing is written. Blank boxes are skipped (not entered yet).
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
@@ -9,30 +8,30 @@ import { getRepo } from "@/lib/sheets/getRepo";
 import { deriveAllItemStates } from "@/lib/domain/entry/status";
 import { resolveMyQuestions } from "@/lib/domain/entry/myQuestions";
 import { validatePoints } from "@/lib/domain/entry/points";
+import { openCycle, entryDecision, deadlinePassed, todayIst } from "@/lib/domain/cycle/cycle";
 import { enterSelfPoint } from "@/lib/actions/enterPoint";
+import { deptName } from "@/lib/actions/teamQueue";
 
 export const instant = false;
-
-const MONTH = "2026-09"; // the open appraisal month — will come from Cycles once that exists
 const enc = encodeURIComponent;
 
 type Principal = NonNullable<Awaited<ReturnType<typeof getPrincipal>>>;
 
-// Used by both the page and the save action, so the save works from the same question list,
-// re-read from the Sheet on the server.
+// Used by both the page and the save action, so the save re-reads everything on the server.
 async function loadMine(p: Principal) {
   const repo = await getRepo();
-  
+  const cycle = openCycle(await repo.readCycles());
+  const month = cycle?.month ?? "";
   const [users, params, events] = await Promise.all([
     repo.readUsers(),
     repo.readKpiParams(),
-    repo.readItemEvents(p.cabiesId, MONTH),
+    month ? repo.readItemEvents(p.cabiesId, month) : Promise.resolve([]),
   ]);
   const me = users.find((u) => u.cabiesId === p.cabiesId) ?? null;
-  if (!me) return { me: null, questions: [] as ReturnType<typeof resolveMyQuestions> };
+  if (!me || !cycle) return { me, cycle, month, questions: [] as ReturnType<typeof resolveMyQuestions> };
   const states = deriveAllItemStates(events);
-  const questions = resolveMyQuestions(params, deptName(me.departmentId), me.designation, MONTH, states);
-  return { me, questions };
+  const questions = resolveMyQuestions(params, deptName(me.departmentId), me.designation, month, states);
+  return { me, cycle, month, questions };
 }
 
 export default async function MyAppraisal({
@@ -43,8 +42,9 @@ export default async function MyAppraisal({
   const p = await getPrincipal();
   if (!p || !p.cabiesId) return <Denied />;
 
-  const { me, questions } = await loadMine(p);
+  const { me, cycle, month, questions } = await loadMine(p);
   if (!me) return <Denied reason="Your profile was not found in the Users sheet." />;
+  if (!cycle) return <Denied reason="No appraisal cycle is open right now." />;
   const sp = await searchParams;
 
   async function saveAll(formData: FormData) {
@@ -54,14 +54,20 @@ export default async function MyAppraisal({
       redirect(`/me?error=${enc("Your session has expired. Sign in again.")}`);
     }
 
-    const { questions: fresh } = await loadMine(principal);
+    const { questions: fresh, cycle: c, month: m } = await loadMine(principal);
+    const today = todayIst();
+    const decision = entryDecision(c, today);
+    if (!decision.allowed || !c) {
+      redirect(`/me?error=${enc(decision.reason ?? "Entry is closed.")}`);
+    }
+
     const errors: string[] = [];
     const plan: { index: number; points: number }[] = [];
 
     fresh.forEach((q, i) => {
       if (!q.iAmTheRater) return;
       const raw = String(formData.get(`points-${i}`) ?? "").trim();
-      if (raw === "") return; // blank = not entered this time, keep whatever is already saved
+      if (raw === "") return;
       const points = Number(raw);
       const problem = Number.isFinite(points)
         ? validatePoints({ points, maxPoints: q.maxPoints as number, minPoints: q.minPoints as number })
@@ -83,11 +89,11 @@ export default async function MyAppraisal({
       await enterSelfPoint(
         principal,
         {
-          appraisalMonth: MONTH, instance: "VP", component: "VP", project: "",
+          appraisalMonth: m, instance: "VP", component: "VP", project: "",
           section: q.section, question: q.question,
           points, maxPoints: q.maxPoints as number, minPoints: q.minPoints as number,
-          item: { status: "NOT_ENTERED", deadlinePassed: false },
-          cycle: { status: "OPEN" },
+          item: { status: "NOT_ENTERED", deadlinePassed: deadlinePassed(c, today) },
+          cycle: { status: c.status as "OPEN" },
         },
         repo,
         new Date().toISOString(),
@@ -105,9 +111,9 @@ export default async function MyAppraisal({
     <main style={wrap}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontSize: 22 }}>My Appraisal — {MONTH}</h1>
+          <h1 style={{ fontSize: 22 }}>My Appraisal — {month}</h1>
           <p style={{ color: "#646767", fontSize: 13 }}>
-            {me.name} · {me.designation} · {deptName(me.departmentId)}
+            {me.name} · {me.designation} · {deptName(me.departmentId)} · entry closes {cycle.entryDeadline}
           </p>
         </div>
         <Link href="/" style={{ color: "#646767" }}>← Home</Link>
@@ -149,7 +155,7 @@ export default async function MyAppraisal({
                       type="number"
                       step="0.01"
                       defaultValue={q.state.value ?? ""}
-                      key={`${q.question}-${q.state.value ?? ""}`}
+                      key={`${i}-${q.question}-${q.state.value ?? ""}`}
                       style={input}
                     />
                     {q.state.status !== "NOT_ENTERED" && (
@@ -174,13 +180,6 @@ export default async function MyAppraisal({
       </form>
     </main>
   );
-}
-
-function deptName(id: string) {
-  const names: Record<string, string> = {
-    MC: "Management Consulting", CF: "Corporate Finance", IA: "Internal Audit", TX: "Taxation", SS: "Support Staff",
-  };
-  return names[id] ?? id;
 }
 
 const wrap: React.CSSProperties = { minHeight: "100vh", background: "#FAF8F3", color: "#111", fontFamily: "system-ui", padding: 32, maxWidth: 820, margin: "0 auto" };
