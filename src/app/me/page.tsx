@@ -22,6 +22,7 @@ type Principal = NonNullable<Awaited<ReturnType<typeof getPrincipal>>>;
 // re-read from the Sheet on the server.
 async function loadMine(p: Principal) {
   const repo = await getRepo();
+  
   const [users, params, events] = await Promise.all([
     repo.readUsers(),
     repo.readKpiParams(),
