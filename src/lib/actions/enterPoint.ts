@@ -83,3 +83,74 @@ export async function enterSelfPoint(
   };
   await repo.appendAudit([audit]);
 }
+export interface EnterRmPointInput extends Omit<EnterSelfPointInput, "cycle"> {
+  appraiseeId: string;
+  appraiseeName: string;
+  appraiseeDepartmentId: string;
+  appraiseeRmCabiesId: string;
+  cycle: CycleCtx;
+}
+
+// Enter a point for an RM-rated question on one of your direct reports.
+// Same shape as enterSelfPoint; the permission check uses the rmEntry rule.
+export async function enterRmPoint(
+  principal: Principal,
+  input: EnterRmPointInput,
+  repo: SheetsRepo,
+  now: string,
+): Promise<void> {
+  const itemCtx: ItemCtx = {
+    appraiseeId: input.appraiseeId,
+    appraiseeDepartmentId: input.appraiseeDepartmentId,
+    appraiseeRmCabiesId: input.appraiseeRmCabiesId,
+    raterKind: "RM",
+    status: input.item.status,
+    deadlinePassed: input.item.deadlinePassed,
+  };
+  assertCan(principal, { type: "ENTER_ITEM", cycle: input.cycle, item: itemCtx });
+
+  const problem = validatePoints({ points: input.points, maxPoints: input.maxPoints, minPoints: input.minPoints });
+  if (problem) throw new Error(problem);
+
+  const event: ItemEvent = {
+    eventId: `${input.appraiseeId}-${input.question}-${now}`.slice(0, 64),
+    at: now,
+    appraisalMonth: input.appraisalMonth,
+    cabiesId: input.appraiseeId,
+    instance: input.instance,
+    question: input.question,
+    type: "ENTER",
+    points: input.points,
+    actorId: principal.cabiesId,
+    actorCapacity: "RM",
+  };
+  await repo.appendItemEvent(event);
+
+  const row: KpiPointsRow = {
+    appraisalMonth: input.appraisalMonth,
+    cabiesId: input.appraiseeId,
+    name: input.appraiseeName,
+    component: input.component,
+    project: input.project,
+    section: input.section,
+    question: input.question,
+    points: input.points,
+    maxPoints: input.maxPoints,
+    status: "Entered",
+    enteredBy: principal.email,
+    enteredAt: now,
+  };
+  await repo.upsertKpiPointsRow(row);
+
+  const audit: AuditEntry = {
+    actorId: principal.cabiesId,
+    actorType: "RM",
+    action: "ENTER_POINT",
+    entity: "Item",
+    entityId: `${input.appraiseeId}:${input.question}`,
+    field: "points",
+    after: String(input.points),
+    at: now,
+  };
+  await repo.appendAudit([audit]);
+}

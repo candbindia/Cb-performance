@@ -130,7 +130,7 @@ export default async function MyAppraisal({
       <form action={saveAll}>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {questions.map((q, i) => (
-            <div key={q.question} style={card}>
+            <div key={`${i}-${q.question}`} style={card}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, color: "#646767" }}>{q.section} · {q.component}</div>
