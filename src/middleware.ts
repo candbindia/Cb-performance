@@ -1,5 +1,8 @@
 // Protect every page: if not signed in, send to /login. (api/auth and static assets are skipped.)
-import { auth } from "@/auth";
+import NextAuth from "next-auth";
+import { authConfig } from "@/auth.config";
+
+const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
   const onLogin = req.nextUrl.pathname === "/login";

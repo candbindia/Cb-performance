@@ -1,29 +1,50 @@
-// Auth.js (next-auth v5) — "Sign in with Google" + the C&B sign-in gate.
-// Auth.js reads AUTH_SECRET, AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET from the environment,
-// so the Google provider needs no arguments here.
-
+// Auth.js (next-auth v5): Google sign-in plus the C&B gate. The gate reads the real Users tab.
 import NextAuth from "next-auth";
-import Google from "next-auth/providers/google";
+import { authConfig } from "@/auth.config";
 import { evaluateSignIn, type SignInFacts } from "@/lib/domain/rbac/signin";
+import { getRepo } from "@/lib/sheets/getRepo";
+import type { UserRow } from "@/lib/domain/org/overview";
+
+const lc = (s: string) => s.trim().toLowerCase();
+const list = (v?: string) => (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+function normaliseStatus(s: string | undefined): "ACTIVE" | "LEFT" | "INACTIVE" {
+  const v = (s ?? "").trim().toUpperCase();
+  if (v === "" || v === "ACTIVE") return "ACTIVE";
+  if (v === "LEFT") return "LEFT";
+  return "INACTIVE"; // anything unrecognised fails closed
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [Google],
-  pages: { signIn: "/login" },
+  ...authConfig,
   callbacks: {
-    // Runs after Google verifies the person. We apply the gate from signin.ts.
     async signIn({ profile }) {
+      const email = profile?.email ?? "";
+
+      let rows: UserRow[] = [];
+      try {
+        rows = await (await getRepo()).readUsers();
+      } catch (err) {
+        // Sheet unreachable: treat as empty so only BOOTSTRAP_HR_EMAILS can get in (break-glass).
+        // Everyone else is still refused below.
+        console.error("[signin] could not read the Users tab", err);
+      }
+
+      const row = rows.find((u) => lc(u.email ?? "") === lc(email));
+
       const facts: SignInFacts = {
-        email: profile?.email ?? "",
+        email,
         emailVerified: Boolean((profile as { email_verified?: boolean })?.email_verified),
-        allowedDomains: (process.env.ALLOWED_EMAIL_DOMAINS ?? "").split(",").map((d) => d.trim()).filter(Boolean),
-        // Sheets is not connected yet, so there is no Users tab to read.
-        // Until it is, we treat the tab as empty and admit only BOOTSTRAP_HR_EMAILS.
-        user: null,
-        finalCycleClosed: false,
-        bootstrapHrEmails: (process.env.BOOTSTRAP_HR_EMAILS ?? "").split(",").map((e) => e.trim()).filter(Boolean),
-        usersTabIsEmpty: true,
+        allowedDomains: list(process.env.ALLOWED_EMAIL_DOMAINS),
+        user: row ? { status: normaliseStatus(row.status) } : null,
+        finalCycleClosed: false, // no Cycles tab yet, so leavers keep access until it exists
+        bootstrapHrEmails: list(process.env.BOOTSTRAP_HR_EMAILS),
+        usersTabIsEmpty: rows.length === 0,
       };
-      return evaluateSignIn(facts).ok;
+
+      const decision = evaluateSignIn(facts);
+      if (!decision.ok) console.warn(`[signin] denied ${email}: ${decision.reason}`);
+      return decision.ok;
     },
   },
 });
