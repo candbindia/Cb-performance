@@ -97,20 +97,20 @@ const yes = (v) => String(v).trim().toUpperCase() === "YES" || String(v).trim().
 export function makeGoogleRepo() {
   return {
     async readUsers() {
-      const { body } = await readTab(TAB.users);
-      return body
-        .filter((r) => r[0])
-        .map((r) => ({
-          cabiesId: r[0],
-          name: r[1],
-          departmentId: r[3],
-          teamId: r[4],
-          designation: r[5],
-          rmCabiesId: r[6] || "",
-          status: (r[8] || "ACTIVE"),
-        }));
-    },
-
+  const { body } = await readTab(TAB.users);
+  return body
+    .filter((r) => r[0])
+    .map((r) => ({
+      cabiesId: r[0],
+      name: r[1],
+      email: r[2],              // <-- ADD THIS LINE
+      departmentId: r[3],
+      teamId: r[4],
+      designation: r[5],
+      rmCabiesId: r[6] || "",
+      status: (r[8] || "ACTIVE"),
+    }));
+},
     async readDepartments() {
       const { body } = await readTab(TAB.departments);
       return body.filter((r) => r[0]).map((r) => ({ deptId: r[0], name: r[1] }));
@@ -235,32 +235,35 @@ export function makeGoogleRepo() {
     },
 
     async appendAudit(entries) {
-      // read last row for seq + prev_hash (hash chain, spec §18)
-      const { body } = await readTab(TAB.audit);
-      let seq = 0;
-      let prev = "GENESIS";
-      const last = body.filter((r) => r[0]).pop();
-      if (last) {
-        seq = Number(last[0]);
-        prev = last[12] || "GENESIS"; // hash column
-      }
-      const values = entries.map((e) => {
-        seq += 1;
-        const core = [seq, e.at, e.actorId, e.actorType, e.action, e.entity, e.entityId,
-          e.field || "", e.before || "", e.after || "", e.reason || "", prev];
-        const hash = crypto.createHash("sha256").update(prev + JSON.stringify(core)).digest("hex");
-        prev = hash;
-        return [...core, hash];
-      });
-      await withRetry(() =>
-        sheets().spreadsheets.values.append({
-          spreadsheetId: DB_ID,
-          range: `${TAB.audit}!A:M`,
-          valueInputOption: "RAW",
-          insertDataOption: "INSERT_ROWS",
-          requestBody: { values },
-        }),
-      );
-    },
+  const { body } = await readTab(TAB.audit);
+  const rows = body.filter((r) => r[0]);
+  let seq = 0;
+  let prev = "GENESIS";
+  const last = rows[rows.length - 1];
+  if (last) {
+    seq = Number(last[0]);
+    prev = last[13] || "GENESIS"; // column N = Hash
+  }
+  const values = entries.map((e) => {
+    seq += 1;
+    const core = [
+      seq, e.at, e.actorId, e.actorType, e.action, e.entity, e.entityId,
+      e.appraisalMonth || "", e.field || "", e.before || "", e.after || "", e.reason || "",
+      prev, // column M = Prev hash
+    ];
+    const hash = crypto.createHash("sha256").update(prev + JSON.stringify(core)).digest("hex");
+    prev = hash;
+    return [...core, hash]; // column N = Hash
+  });
+  await withRetry(() =>
+    sheets().spreadsheets.values.append({
+      spreadsheetId: DB_ID,
+      range: `${TAB.audit}!A:N`,
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values },
+    }),
+  );
+},
   };
 }
