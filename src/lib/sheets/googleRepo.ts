@@ -26,6 +26,7 @@ const TAB = {
   deptPcs: "DeptPCs",
   kpiParams: "KPI_Parameters",
   audit: "AuditLog",
+  cycles: "Cycles"
 };
 
 // KPI_Parameters columns A..O (helper columns P..T are sheet-only formulas, never written here).
@@ -172,7 +173,18 @@ export function makeGoogleRepo() {
         }),
       );
     },
-
+    async readCycles() {
+  const { body } = await readTab(TAB.cycles);
+  return body
+    .filter((r) => r[0])
+    .map((r) => ({
+      month: r[0],
+      status: (r[1] || "UPCOMING"),
+      entryDeadline: r[2] || "",
+      approvalDeadline: r[3] || "",
+      closedAt: r[4] || "",
+    }));
+},
     async readItemEvents(cabiesId, appraisalMonth) {
       const { body } = await readTab(TAB.itemEvents ?? "ItemEvents");
       return body

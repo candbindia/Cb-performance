@@ -4,6 +4,8 @@
 
 import type { KpiParamRow } from "../domain/kpi/params";
 import type { DeptRow, UserRow } from "../domain/org/overview";
+import type { CycleRow } from "../domain/cycle/cycle";
+export type { CycleRow };
 
 export type { KpiParamRow, DeptRow, UserRow };
 
@@ -92,6 +94,8 @@ export interface SheetsRepo {
    * rather than appending a duplicate — this tab is a current-value view, not a log.
    */
   upsertKpiPointsRow(row: KpiPointsRow): Promise<void>;
+    /** Every row of the Cycles tab — one per appraisal month. */
+  readCycles(): Promise<CycleRow[]>;
 }
 
 /** cabiesIds that have the MANAGEMENT user type — the MDs, exempt from appraisal. */
