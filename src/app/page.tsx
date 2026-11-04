@@ -19,10 +19,11 @@ export default async function Home() {
           <p style={{ color: "#8a6d3b", fontSize: 13 }}>Using sample data (the Google Sheet is not connected yet)</p>
         )}
 
-        <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 20 }}>
-          {isHR && <Link href="/hr" style={btn}>HR dashboard</Link>}
-          {isMD && <Link href="/md" style={btn}>MD dashboard</Link>}
-          {!isHR && !isMD && <span style={{ color: "#646767" }}>No dashboards for your role yet.</span>}
+        <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 20, flexWrap: "wrap" }}>
+          <Link href="/me" style={btn}>My Appraisal</Link>
+          {isHR && <Link href="/hr" style={btnOutline}>HR dashboard</Link>}
+          {isMD && <Link href="/md" style={btnOutline}>MD dashboard</Link>}
+          <Link href="/team" style={btnOutline}>My team</Link>
         </div>
 
         <form action={async () => { "use server"; await signOut({ redirectTo: "/login" }); }}>
@@ -34,3 +35,4 @@ export default async function Home() {
 }
 
 const btn: React.CSSProperties = { background: "#F2AC3C", color: "#111", padding: "10px 18px", borderRadius: 8, fontWeight: 600, textDecoration: "none" };
+const btnOutline: React.CSSProperties = { border: "1px solid #646767", color: "#111", padding: "10px 18px", borderRadius: 8, fontWeight: 600, textDecoration: "none" };

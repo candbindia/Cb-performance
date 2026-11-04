@@ -4,7 +4,7 @@
 
 import type { KpiParamRow } from "../domain/kpi/params";
 import type { DeptRow, UserRow } from "../domain/org/overview";
-import type { AuditEntry, DeptPcRow, GroupMemberRow, SheetsRepo, UserTypeRow } from "./repo";
+import type { AuditEntry, DeptPcRow, GroupMemberRow, ItemEvent, KpiPointsRow, SheetsRepo, UserTypeRow } from "./repo";
 
 const U = (cabiesId: string, name: string, email: string, departmentId: string, teamId: string,
   designation: string, rmCabiesId: string): UserRow =>
@@ -81,6 +81,8 @@ const kpiParams: KpiParamRow[] = [
 
 export function makeSampleRepo(): SheetsRepo {
   const extraParams: KpiParamRow[] = [];
+  const events: ItemEvent[] = [];
+  const pointsRows = new Map<string, KpiPointsRow>(); // key: cabiesId|question
   let audits = 0;
   return {
     readUsers: async () => users,
@@ -91,5 +93,10 @@ export function makeSampleRepo(): SheetsRepo {
     readKpiParams: async () => [...kpiParams, ...extraParams],
     appendKpiParams: async (rows) => { extraParams.push(...rows); },
     appendAudit: async (e: readonly AuditEntry[]) => { audits += e.length; void audits; },
+
+    readItemEvents: async (cabiesId, appraisalMonth) =>
+      events.filter((e) => e.cabiesId === cabiesId && e.appraisalMonth === appraisalMonth),
+    appendItemEvent: async (event) => { events.push(event); },
+    upsertKpiPointsRow: async (row) => { pointsRows.set(`${row.cabiesId}|${row.question}`, row); },
   };
 }

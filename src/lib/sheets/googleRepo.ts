@@ -64,6 +64,33 @@ async function readTab(title) {
   return { header: header || [], body };
 }
 
+// ItemEvents and KPI_Points_* tabs carry a one-cell "note" in row 2, col A (see build_db2.py),
+// which would otherwise be misread as a data row by a plain "first cell truthy" filter. A real
+// data row's second column is always an ISO timestamp (e.g. "2026-11-06T09:12+05:30"); the note
+// text never matches that shape, so this filter skips it safely.
+const looksLikeIsoAt = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v);
+
+async function ensureTabWithHeader(title, headers) {
+  const meta = await withRetry(() => sheets().spreadsheets.get({ spreadsheetId: DB_ID }));
+  const exists = (meta.data.sheets || []).some((s) => s.properties.title === title);
+  if (!exists) {
+    await withRetry(() =>
+      sheets().spreadsheets.batchUpdate({
+        spreadsheetId: DB_ID,
+        requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+      }),
+    );
+    await withRetry(() =>
+      sheets().spreadsheets.values.update({
+        spreadsheetId: DB_ID,
+        range: `${title}!A1`,
+        valueInputOption: "RAW",
+        requestBody: { values: [headers] },
+      }),
+    );
+  }
+}
+
 const num = (v) => (v === "" || v == null ? null : Number(v));
 const yes = (v) => String(v).trim().toUpperCase() === "YES" || String(v).trim().toUpperCase() === "TRUE";
 
@@ -144,6 +171,67 @@ export function makeGoogleRepo() {
           requestBody: { values },
         }),
       );
+    },
+
+    async readItemEvents(cabiesId, appraisalMonth) {
+      const { body } = await readTab(TAB.itemEvents ?? "ItemEvents");
+      return body
+        .filter((r) => r[0] && looksLikeIsoAt(r[1]) && r[3] === cabiesId && r[2] === appraisalMonth)
+        .map((r) => ({
+          eventId: r[0], at: r[1], appraisalMonth: r[2], cabiesId: r[3], instance: r[4],
+          question: r[5], type: r[6], points: Number(r[7]), actorId: r[8], actorCapacity: r[9],
+          comment: r[10] || "",
+        }));
+    },
+
+    async appendItemEvent(event) {
+      const row = [
+        event.eventId, event.at, event.appraisalMonth, event.cabiesId, event.instance,
+        event.question, event.type, event.points, event.actorId, event.actorCapacity, event.comment || "",
+      ];
+      await withRetry(() =>
+        sheets().spreadsheets.values.append({
+          spreadsheetId: DB_ID,
+          range: "ItemEvents!A:K",
+          valueInputOption: "RAW",
+          insertDataOption: "INSERT_ROWS",
+          requestBody: { values: [row] },
+        }),
+      );
+    },
+
+    async upsertKpiPointsRow(row) {
+      const tab = `KPI_Points_${row.appraisalMonth}`;
+      const headers = ["Appraisal month", "Emp code", "Name", "Component", "Project", "Section",
+        "Question", "Points", "Status", "Entered by", "Entered at", "Validated by", "Validated at"];
+      await ensureTabWithHeader(tab, headers);
+
+      const { body } = await readTab(tab);
+      const idx = body.findIndex((r) => r[1] === row.cabiesId && r[6] === row.question);
+      const values = [row.appraisalMonth, row.cabiesId, row.name, row.component, row.project,
+        row.section, row.question, row.points, row.status, row.enteredBy, row.enteredAt, "", ""];
+
+      if (idx >= 0) {
+        // +2: header row + 1-indexing
+        await withRetry(() =>
+          sheets().spreadsheets.values.update({
+            spreadsheetId: DB_ID,
+            range: `${tab}!A${idx + 2}:K${idx + 2}`,
+            valueInputOption: "RAW",
+            requestBody: { values: [values.slice(0, 11)] },
+          }),
+        );
+      } else {
+        await withRetry(() =>
+          sheets().spreadsheets.values.append({
+            spreadsheetId: DB_ID,
+            range: `${tab}!A:M`,
+            valueInputOption: "RAW",
+            insertDataOption: "INSERT_ROWS",
+            requestBody: { values: [values] },
+          }),
+        );
+      }
     },
 
     async appendAudit(entries) {

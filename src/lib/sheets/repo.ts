@@ -26,6 +26,37 @@ export interface DeptPcRow {
   pcCabiesId: string;
 }
 
+/** One row appended to ItemEvents — the append-only source of truth for points. */
+export interface ItemEvent {
+  eventId: string;
+  at: string; // ISO 8601 +05:30
+  appraisalMonth: string; // YYYY-MM
+  cabiesId: string;
+  instance: string; // "VP" or "PRJ:<project_id>"
+  question: string;
+  type: "ENTER" | "RM_FILL" | "VALIDATE" | "CORRECT" | "SEND_BACK" | "AUTO_VALIDATE";
+  points: number;
+  actorId: string;
+  actorCapacity: string; // SELF | RATER | VALIDATOR | SYSTEM
+  comment?: string;
+}
+
+/** One row in the readable per-month KPI_Points_YYYY-MM tab (mirrors an ItemEvent). */
+export interface KpiPointsRow {
+  appraisalMonth: string;
+  cabiesId: string;
+  name: string;
+  component: string;
+  project: string;
+  section: string;
+  question: string;
+  points: number;
+  maxPoints: number;
+  status: string;
+  enteredBy: string;
+  enteredAt: string;
+}
+
 /** One line appended to AuditLog. The repo fills seq / hash / prev_hash. */
 export interface AuditEntry {
   actorId: string;
@@ -50,6 +81,17 @@ export interface SheetsRepo {
   /** Append new KPI parameter rows (a new effective-month set). */
   appendKpiParams(rows: readonly KpiParamRow[]): Promise<void>;
   appendAudit(entries: readonly AuditEntry[]): Promise<void>;
+
+  /** Every ItemEvent for one CABIES in one appraisal month (so the UI can show current values). */
+  readItemEvents(cabiesId: string, appraisalMonth: string): Promise<ItemEvent[]>;
+  /** Append one point entry to the source-of-truth log. */
+  appendItemEvent(event: ItemEvent): Promise<void>;
+  /**
+   * Upsert one row of the readable KPI_Points_YYYY-MM tab (creating the tab if this is its
+   * first row). Keyed by (cabiesId, question): a later call for the same pair replaces it,
+   * rather than appending a duplicate — this tab is a current-value view, not a log.
+   */
+  upsertKpiPointsRow(row: KpiPointsRow): Promise<void>;
 }
 
 /** cabiesIds that have the MANAGEMENT user type — the MDs, exempt from appraisal. */
