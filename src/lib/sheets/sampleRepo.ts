@@ -96,13 +96,18 @@ export function makeSampleRepo(): SheetsRepo {
     readGroups: async () => groups,
     readDeptPCs: async () => deptPcs,
     readKpiParams: async () => [...kpiParams, ...extraParams],
-    readCycles: async () => cycles,
+    readCycles: async () => cycles, 
     appendKpiParams: async (rows) => { extraParams.push(...rows); },
     appendAudit: async (e: readonly AuditEntry[]) => { audits += e.length; void audits; },
 
     readItemEvents: async (cabiesId, appraisalMonth) =>
       events.filter((e) => e.cabiesId === cabiesId && e.appraisalMonth === appraisalMonth),
-    appendItemEvent: async (event) => { events.push(event); },
+      appendItemEvent: async (event) => { events.push(event); },
+    appendItemEvents: async (newEvents) => { events.push(...newEvents); },
+
     upsertKpiPointsRow: async (row) => { pointsRows.set(`${row.cabiesId}|${row.question}`, row); },
+    upsertKpiPointsRows: async (rows) => {
+      for (const row of rows) pointsRows.set(`${row.cabiesId}|${row.question}`, row);
+    },
   };
 }

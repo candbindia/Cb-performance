@@ -31,17 +31,20 @@ export interface DeptPcRow {
 /** One row appended to ItemEvents — the append-only source of truth for points. */
 export interface ItemEvent {
   eventId: string;
-  at: string; // ISO 8601 +05:30
-  appraisalMonth: string; // YYYY-MM
+  at: string;
+  appraisalMonth: string;
   cabiesId: string;
-  instance: string; // "VP" or "PRJ:<project_id>"
+  instance: string;
   question: string;
   type: "ENTER" | "RM_FILL" | "VALIDATE" | "CORRECT" | "SEND_BACK" | "AUTO_VALIDATE";
   points: number;
   actorId: string;
   actorCapacity: string; // SELF | RATER | VALIDATOR | SYSTEM
   comment?: string;
+  /** DEFAULT = written by the system at cycle open; ENTERED = typed in by a person. Missing means ENTERED. */
+  source?: "DEFAULT" | "ENTERED";
 }
+
 
 /** One row in the readable per-month KPI_Points_YYYY-MM tab (mirrors an ItemEvent). */
 export interface KpiPointsRow {
@@ -88,6 +91,11 @@ export interface SheetsRepo {
   readItemEvents(cabiesId: string, appraisalMonth: string): Promise<ItemEvent[]>;
   /** Append one point entry to the source-of-truth log. */
   appendItemEvent(event: ItemEvent): Promise<void>;
+  
+    /** Append many point entries in one request (used for the cycle-open default write). */
+  appendItemEvents(events: readonly ItemEvent[]): Promise<void>;
+  /** Upsert many KPI_Points rows: one read per month tab, one batch update, one append. */
+  upsertKpiPointsRows(rows: readonly KpiPointsRow[]): Promise<void>;
   /**
    * Upsert one row of the readable KPI_Points_YYYY-MM tab (creating the tab if this is its
    * first row). Keyed by (cabiesId, question): a later call for the same pair replaces it,
@@ -96,9 +104,15 @@ export interface SheetsRepo {
   upsertKpiPointsRow(row: KpiPointsRow): Promise<void>;
     /** Every row of the Cycles tab — one per appraisal month. */
   readCycles(): Promise<CycleRow[]>;
+
+    /** Every ItemEvent for one appraisal month, all people (used to check whether defaults already ran). */
+  readMonthItemEvents(
+    appraisalMonth: string,
+  ): Promise<Pick<ItemEvent, "eventId" | "appraisalMonth" | "cabiesId" | "source">[]>;
 }
 
 /** cabiesIds that have the MANAGEMENT user type — the MDs, exempt from appraisal. */
 export function managementIds(userTypes: readonly UserTypeRow[]): Set<string> {
   return new Set(userTypes.filter((t) => t.userType === "MANAGEMENT").map((t) => t.cabiesId));
 }
+

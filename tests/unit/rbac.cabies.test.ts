@@ -77,14 +77,25 @@ describe("CABIES — Self entry", () => {
 });
 
 describe("Own-appraisal guard", () => {
-  for (const kind of ["GROUP", "PC", "RM"] as const) {
-    it(`${kind} item on own appraisal is denied even for a CABIES who is the rater`, () => {
-      expect(can(me({ groupIds: new Set(["G-HR"]) }), enter(item({ raterKind: kind, raterGroupId: "G-HR" })))).toEqual({
-        allowed: false,
-        reason: "OWN_APPRAISAL_GUARD",
-      });
+  for (const kind of ["PC", "RM"] as const) {
+  it(`${kind} item on own appraisal is denied even for a CABIES who is the rater`, () => {
+    expect(can(me({ groupIds: new Set(["G-HR"]) }), enter(item({ raterKind: kind, raterGroupId: "G-HR" })))).toEqual({
+      allowed: false,
+      reason: "OWN_APPRAISAL_GUARD",
     });
-  }
+  });
+}
+
+it("GROUP item on own appraisal is allowed when the CABIES is in that rater group (decision B)", () => {
+  expect(can(me({ groupIds: new Set(["G-HR"]) }), enter(item({ raterKind: "GROUP", raterGroupId: "G-HR" }))).allowed).toBe(true);
+});
+
+it("GROUP item on own appraisal is still denied when the CABIES is not in that rater group", () => {
+  expect(can(me({ groupIds: new Set() }), enter(item({ raterKind: "GROUP", raterGroupId: "G-HR" })))).toEqual({
+    allowed: false,
+    reason: "OWN_APPRAISAL_GUARD",
+  });
+});
 });
 
 describe("Visibility scope", () => {

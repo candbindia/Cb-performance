@@ -104,7 +104,7 @@ export function makeGoogleRepo() {
     .map((r) => ({
       cabiesId: r[0],
       name: r[1],
-      email: r[2],              // <-- ADD THIS LINE
+      email: r[2],              
       departmentId: r[3],
       teamId: r[4],
       designation: r[5],
@@ -157,6 +157,18 @@ export function makeGoogleRepo() {
         }));
     },
 
+        async readMonthItemEvents(appraisalMonth) {
+      const { body } = await readTab("ItemEvents");
+      return body
+        .filter((r) => r[0] && looksLikeIsoAt(r[1]) && r[2] === appraisalMonth)
+        .map((r) => ({
+          eventId: r[0],
+          appraisalMonth: r[2],
+          cabiesId: r[3],
+          source: r[11] === "DEFAULT" ? "DEFAULT" : "ENTERED",
+        }));
+    },
+
     async appendKpiParams(rows) {
       const values = rows.map((r) => [
         r.unit, r.designation, r.component, r.projectType, r.effectiveFrom,
@@ -185,7 +197,7 @@ export function makeGoogleRepo() {
       closedAt: r[4] || "",
     }));
 },
-    async readItemEvents(cabiesId, appraisalMonth) {
+        async readItemEvents(cabiesId, appraisalMonth) {
       const { body } = await readTab(TAB.itemEvents ?? "ItemEvents");
       return body
         .filter((r) => r[0] && looksLikeIsoAt(r[1]) && r[3] === cabiesId && r[2] === appraisalMonth)
@@ -193,25 +205,84 @@ export function makeGoogleRepo() {
           eventId: r[0], at: r[1], appraisalMonth: r[2], cabiesId: r[3], instance: r[4],
           question: r[5], type: r[6], points: Number(r[7]), actorId: r[8], actorCapacity: r[9],
           comment: r[10] || "",
+          source: r[11] === "DEFAULT" ? "DEFAULT" : "ENTERED",
         }));
     },
 
     async appendItemEvent(event) {
-      const row = [
-        event.eventId, event.at, event.appraisalMonth, event.cabiesId, event.instance,
-        event.question, event.type, event.points, event.actorId, event.actorCapacity, event.comment || "",
-      ];
+      await this.appendItemEvents([event]);
+    },
+
+    async appendItemEvents(events) {
+      if (!events.length) return;
+      const values = events.map((e) => [
+        e.eventId, e.at, e.appraisalMonth, e.cabiesId, e.instance,
+        e.question, e.type, e.points, e.actorId, e.actorCapacity,
+        e.comment || "", e.source ?? "ENTERED",
+      ]);
       await withRetry(() =>
         sheets().spreadsheets.values.append({
           spreadsheetId: DB_ID,
-          range: "ItemEvents!A:K",
+          range: "ItemEvents!A:L",
           valueInputOption: "RAW",
           insertDataOption: "INSERT_ROWS",
-          requestBody: { values: [row] },
+          requestBody: { values },
         }),
       );
     },
 
+    async upsertKpiPointsRows(rows) {
+      if (!rows.length) return;
+      const headers = ["Appraisal month", "Emp code", "Name", "Component", "Project", "Section",
+        "Question", "Points", "Status", "Entered by", "Entered at", "Validated by", "Validated at"];
+
+      // Last row wins if the same (cabiesId, question) appears twice in one batch.
+      const latest = new Map();
+      for (const r of rows) latest.set(`${r.appraisalMonth}|${r.cabiesId}|${r.question}`, r);
+
+      const byMonth = new Map();
+      for (const r of latest.values()) {
+        (byMonth.get(r.appraisalMonth) ?? byMonth.set(r.appraisalMonth, []).get(r.appraisalMonth)).push(r);
+      }
+
+      for (const [month, monthRows] of byMonth) {
+        const tab = `KPI_Points_${month}`;
+        await ensureTabWithHeader(tab, headers);
+        const { body } = await readTab(tab);
+        const rowOf = new Map(body.map((r, i) => [`${r[1]}|${r[6]}`, i + 2])); // +2: header + 1-indexing
+
+        const updates = [];
+        const appends = [];
+        for (const row of monthRows) {
+          const values = [row.appraisalMonth, row.cabiesId, row.name, row.component, row.project,
+            row.section, row.question, row.points, row.status, row.enteredBy, row.enteredAt, "", ""];
+          const n = rowOf.get(`${row.cabiesId}|${row.question}`);
+          if (n) updates.push({ range: `${tab}!A${n}:K${n}`, values: [values.slice(0, 11)] });
+          else appends.push(values);
+        }
+
+        if (updates.length) {
+          await withRetry(() =>
+            sheets().spreadsheets.values.batchUpdate({
+              spreadsheetId: DB_ID,
+              requestBody: { valueInputOption: "RAW", data: updates },
+            }),
+          );
+        }
+        if (appends.length) {
+          await withRetry(() =>
+            sheets().spreadsheets.values.append({
+              spreadsheetId: DB_ID,
+              range: `${tab}!A:M`,
+              valueInputOption: "RAW",
+              insertDataOption: "INSERT_ROWS",
+              requestBody: { values: appends },
+            }),
+          );
+        }
+      }
+    },
+    
     async upsertKpiPointsRow(row) {
       const tab = `KPI_Points_${row.appraisalMonth}`;
       const headers = ["Appraisal month", "Emp code", "Name", "Component", "Project", "Section",
