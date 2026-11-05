@@ -10,7 +10,9 @@ import { resolveMyQuestions } from "@/lib/domain/entry/myQuestions";
 import { validatePoints } from "@/lib/domain/entry/points";
 import { openCycle, entryDecision, deadlinePassed, todayIst } from "@/lib/domain/cycle/cycle";
 import { enterSelfPoint } from "@/lib/actions/enterPoint";
-import { deptName } from "@/lib/actions/teamQueue";
+import { deptName,supportSubTeam } from "@/lib/actions/teamQueue";
+
+
 
 export const instant = false;
 const enc = encodeURIComponent;
@@ -19,6 +21,7 @@ type Principal = NonNullable<Awaited<ReturnType<typeof getPrincipal>>>;
 
 // Used by both the page and the save action, so the save re-reads everything on the server.
 async function loadMine(p: Principal) {
+  
   const repo = await getRepo();
   const cycle = openCycle(await repo.readCycles());
   const month = cycle?.month ?? "";
@@ -30,7 +33,8 @@ async function loadMine(p: Principal) {
   const me = users.find((u) => u.cabiesId === p.cabiesId) ?? null;
   if (!me || !cycle) return { me, cycle, month, questions: [] as ReturnType<typeof resolveMyQuestions> };
   const states = deriveAllItemStates(events);
-  const questions = resolveMyQuestions(params, deptName(me.departmentId), me.designation, month, states);
+  const subTeam = me.departmentId === "SS" ? supportSubTeam(me.teamId) : undefined;
+  const questions = resolveMyQuestions(params, deptName(me.departmentId), me.designation, month, states, subTeam);
   return { me, cycle, month, questions };
 }
 

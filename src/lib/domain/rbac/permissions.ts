@@ -5,11 +5,13 @@
 
 import { approverRule } from "./rules/approver";
 import { cabiesRule } from "./rules/cabies";
+import { groupRule } from "./rules/group";
 import { hrRule } from "./rules/hr";
 import { managementRule } from "./rules/management";
 import { pcRule } from "./rules/pc";
 import { rmEntryRule } from "./rules/rmEntry";
 import { allow, deny, type Action, type Decision, type Principal } from "./types";
+
 
 type Rule = (p: Principal, a: Action) => Decision | null;
 
@@ -19,12 +21,11 @@ const RULES: readonly Rule[] = [
   hrRule,
   managementRule,
   pcRule,
-  rmEntryRule, // narrow: entering RM-rated items only — see rules/rmEntry.ts
-  approverRule, // Analyst -> own RM (TL), Team Lead -> own RM (Manager), Manager -> Management; HR if no RM
-  // General Reporting Manager role (team view, fill-missing, escalation) — WAITING for
-  // Dinesh's details; intentionally not built.
-  // Later: raterRule (Admin / group raters), validatorRule, systemAdminRule / audit.
+  groupRule, // HR / Admin / Operations entering their group's items — see rules/group.ts
+  rmEntryRule,
+  approverRule,
 ];
+
 
 /** Checks that apply to everyone, whatever their user types. */
 function commonChecks(p: Principal, a: Action): Decision | null {
@@ -33,10 +34,17 @@ function commonChecks(p: Principal, a: Action): Decision | null {
   switch (a.type) {
     case "ENTER_ITEM":
       if (a.cycle.status !== "OPEN") return deny("CYCLE_NOT_OPEN");
-      // Own-appraisal guard (spec §10.1): nobody enters a non-Self item on their own appraisal.
-      if (a.item.raterKind !== "SELF" && a.item.appraiseeId === p.cabiesId) return deny("OWN_APPRAISAL_GUARD");
+      // Own-appraisal guard (spec §10.1): nobody enters a non-Self item on their own appraisal —
+      // except a GROUP item where the appraisee is themselves in that item's rater group
+      // (decided 5 Nov: HR/Admin/Operations grade their own group-tagged items).
+      if (a.item.raterKind !== "SELF" && a.item.appraiseeId === p.cabiesId) {
+        const ownGroupException =
+          a.item.raterKind === "GROUP" &&
+          a.item.raterGroupId !== undefined &&
+          p.groupIds.has(a.item.raterGroupId);
+        if (!ownGroupException) return deny("OWN_APPRAISAL_GUARD");
+      }
       return null;
-
     case "ASSIGN_TO_PROJECT":
     case "SET_PROJECT_PAY_ENABLED":
       // Spec §11.2: assignments can change until the tracker cut-off, in the open cycle.
@@ -49,6 +57,8 @@ function commonChecks(p: Principal, a: Action): Decision | null {
       // Own-appraisal guard: nobody approves their own score, even Management on themselves.
       if (a.appraisee.appraiseeId === p.cabiesId) return deny("OWN_APPRAISAL_GUARD");
       return null;
+    
+      
 
     default:
       return null;

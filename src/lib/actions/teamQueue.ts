@@ -10,6 +10,16 @@ export function deptName(id: string) {
   return names[id] ?? id;
 }
 
+const SUPPORT_SUBTEAMS: Record<string, string> = {
+  HR: "HR", ADMIN: "Admin", OPS: "Operations", PC: "PC",
+};
+
+/** For a Support Staff teamId like "SS-ADMIN", returns "Admin". Undefined if not recognised. */
+export function supportSubTeam(teamId: string): string | undefined {
+  const code = teamId.replace(/^SS-/, "").toUpperCase();
+  return SUPPORT_SUBTEAMS[code];
+}
+
 /** The currently open cycle's month, or a fallback if none is open yet. */
 export async function currentMonth(repo: SheetsRepo): Promise<string> {
   const cycle = openCycle(await repo.readCycles());
@@ -25,7 +35,7 @@ export async function loadReports(repo: SheetsRepo, cabiesId: string) {
 // The RM-rated questions for one report, with their current state.
 export async function loadReportQuestions(
   repo: SheetsRepo,
-  report: { cabiesId: string; departmentId: string; designation: string },
+  report: { cabiesId: string; departmentId: string; teamId: string; designation: string },
   month: string,
 ) {
   const [params, events] = await Promise.all([
@@ -33,6 +43,7 @@ export async function loadReportQuestions(
     repo.readItemEvents(report.cabiesId, month),
   ]);
   const states = deriveAllItemStates(events);
-  return resolveMyQuestions(params, deptName(report.departmentId), report.designation, month, states)
+  const subTeam = report.departmentId === "SS" ? supportSubTeam(report.teamId) : undefined;
+  return resolveMyQuestions(params, deptName(report.departmentId), report.designation, month, states, subTeam)
     .filter((q) => q.raterKind === "RM");
 }
