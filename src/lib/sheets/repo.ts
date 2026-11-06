@@ -119,6 +119,9 @@ export interface SheetsRepo {
   readMonthItemEvents(
     appraisalMonth: string,
   ): Promise<Pick<ItemEvent, "eventId" | "appraisalMonth" | "cabiesId" | "source">[]>;
+
+    /** Same read, full rows — for company-wide reports like the missing-scores page. */
+  readMonthItemEventsFull(appraisalMonth: string): Promise<ItemEvent[]>;
 }
 
 /** cabiesIds that have the MANAGEMENT user type — the MDs, exempt from appraisal. */

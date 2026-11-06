@@ -194,6 +194,26 @@ export function makeGoogleRepo() {
         }));
     },
 
+        async readMonthItemEventsFull(appraisalMonth) {
+      const { body } = await readTab("ItemEvents");
+      return body
+        .filter((r) => r[0] && looksLikeIsoAt(r[1]) && r[2] === appraisalMonth)
+        .map((r) => ({
+          eventId: r[0],
+          at: r[1],
+          appraisalMonth: r[2],
+          cabiesId: r[3],
+          instance: r[4],
+          question: r[5],
+          type: r[6],
+          points: Number(r[7]),
+          actorId: r[8],
+          actorCapacity: r[9],
+          comment: r[10] || undefined,
+          source: r[11] === "DEFAULT" ? "DEFAULT" : "ENTERED",
+        })) as ItemEvent[];
+    },
+
     async appendKpiParams(rows) {
       const values = rows.map((r) => [
         r.unit, r.designation, r.component, r.projectType, r.effectiveFrom,

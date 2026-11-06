@@ -126,5 +126,10 @@ export function makeSampleRepo(): SheetsRepo {
       events
         .filter((e) => e.appraisalMonth === appraisalMonth)
         .map((e) => ({ eventId: e.eventId, appraisalMonth: e.appraisalMonth, cabiesId: e.cabiesId, source: e.source })),
+
+    readMonthItemEventsFull: async (appraisalMonth) =>
+      events.filter((e) => e.appraisalMonth === appraisalMonth),
   };
+
+  
 }

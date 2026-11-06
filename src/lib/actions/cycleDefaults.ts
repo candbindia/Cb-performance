@@ -5,7 +5,6 @@ import { resolveEffective, resolveKpiUnit } from "../domain/kpi/params";
 import { deptName, supportSubTeam } from "./teamQueue";
 
 
-
 export interface DefaultRun {
   month: string;
   defaulted: number;
