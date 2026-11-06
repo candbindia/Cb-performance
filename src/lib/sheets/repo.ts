@@ -16,6 +16,12 @@ export interface UserTypeRow {
   canViewAudit: boolean;
 }
 
+
+export interface OpenCycleInput {
+  month: string; // "YYYY-MM"
+  entryDeadline: string; // "YYYY-MM-DD"
+  approvalDeadline: string; // "YYYY-MM-DD"
+}
 /** A row for the Groups tab (one person's membership of one group). */
 export interface GroupMemberRow {
   group: string;
@@ -77,6 +83,8 @@ export interface AuditEntry {
 }
 
 export interface SheetsRepo {
+  
+  
   readUsers(): Promise<UserRow[]>;
   readDepartments(): Promise<DeptRow[]>;
   readUserTypes(): Promise<UserTypeRow[]>;
@@ -96,6 +104,8 @@ export interface SheetsRepo {
   appendItemEvents(events: readonly ItemEvent[]): Promise<void>;
   /** Upsert many KPI_Points rows: one read per month tab, one batch update, one append. */
   upsertKpiPointsRows(rows: readonly KpiPointsRow[]): Promise<void>;
+    /** Create or update a Cycles row: sets status OPEN and the given deadlines, clears closedAt. */
+  upsertOpenCycle(input: OpenCycleInput): Promise<void>;
   /**
    * Upsert one row of the readable KPI_Points_YYYY-MM tab (creating the tab if this is its
    * first row). Keyed by (cabiesId, question): a later call for the same pair replaces it,

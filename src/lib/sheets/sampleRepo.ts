@@ -4,8 +4,8 @@
 
 import type { KpiParamRow } from "../domain/kpi/params";
 import type { DeptRow, UserRow } from "../domain/org/overview";
-import type { AuditEntry, DeptPcRow, GroupMemberRow, ItemEvent, KpiPointsRow, SheetsRepo, UserTypeRow } from "./repo";
 import type { CycleRow } from "../domain/cycle/cycle";
+import type { AuditEntry, DeptPcRow, GroupMemberRow, ItemEvent, KpiPointsRow, OpenCycleInput, SheetsRepo, UserTypeRow } from "./repo";
 
 const U = (cabiesId: string, name: string, email: string, departmentId: string, teamId: string,
   designation: string, rmCabiesId: string): UserRow =>
@@ -109,5 +109,22 @@ export function makeSampleRepo(): SheetsRepo {
     upsertKpiPointsRows: async (rows) => {
       for (const row of rows) pointsRows.set(`${row.cabiesId}|${row.question}`, row);
     },
+        upsertOpenCycle: async (input: OpenCycleInput) => {
+      const idx = cycles.findIndex((c) => c.month === input.month);
+      const row: CycleRow = {
+        month: input.month,
+        status: "OPEN",
+        entryDeadline: input.entryDeadline,
+        approvalDeadline: input.approvalDeadline,
+        closedAt: "",
+      };
+      if (idx >= 0) cycles[idx] = row;
+      else cycles.push(row);
+    },
+
+    readMonthItemEvents: async (appraisalMonth) =>
+      events
+        .filter((e) => e.appraisalMonth === appraisalMonth)
+        .map((e) => ({ eventId: e.eventId, appraisalMonth: e.appraisalMonth, cabiesId: e.cabiesId, source: e.source })),
   };
 }
