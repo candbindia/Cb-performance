@@ -111,11 +111,36 @@ export function makeGoogleRepo() {
       rmCabiesId: r[6] || "",
       status: (r[8] || "ACTIVE"),
     }));
-},
+},    async upsertOpenCycle(input) {
+      const { body } = await readTab(TAB.cycles);
+      const idx = body.findIndex((r) => r[0] === input.month);
+      const values = [input.month, "OPEN", input.entryDeadline, input.approvalDeadline, ""];
+      if (idx >= 0) {
+        await withRetry(() =>
+          sheets().spreadsheets.values.update({
+            spreadsheetId: DB_ID,
+            range: `${TAB.cycles}!A${idx + 2}:E${idx + 2}`,
+            valueInputOption: "RAW",
+            requestBody: { values: [values] },
+          }),
+        );
+      } else {
+        await withRetry(() =>
+          sheets().spreadsheets.values.append({
+            spreadsheetId: DB_ID,
+            range: `${TAB.cycles}!A:E`,
+            valueInputOption: "RAW",
+            insertDataOption: "INSERT_ROWS",
+            requestBody: { values: [values] },
+          }),
+        );
+      }
+    },
     async readDepartments() {
       const { body } = await readTab(TAB.departments);
       return body.filter((r) => r[0]).map((r) => ({ deptId: r[0], name: r[1] }));
     },
+      
 
     async readUserTypes() {
       const { body } = await readTab(TAB.userTypes);
@@ -157,7 +182,7 @@ export function makeGoogleRepo() {
         }));
     },
 
-        async readMonthItemEvents(appraisalMonth) {
+    async readMonthItemEvents(appraisalMonth) {
       const { body } = await readTab("ItemEvents");
       return body
         .filter((r) => r[0] && looksLikeIsoAt(r[1]) && r[2] === appraisalMonth)
